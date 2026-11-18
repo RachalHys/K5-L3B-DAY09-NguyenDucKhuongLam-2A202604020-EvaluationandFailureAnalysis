@@ -8,6 +8,8 @@ Reference values to self-check are in tests/test_lab9_stats.py.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from math import comb
+from numbers import Integral
 
 import numpy as np
 from scipy.stats import bootstrap
@@ -66,6 +68,9 @@ def paired_bootstrap(a: Sequence[float], b: Sequence[float], *, n_resamples: int
     rng=numpy.random.default_rng(rng)). If a == b everywhere return (0.0, 0.0, 0.0)."""
     if len(a) and np.array_equal(a, b):
         return 0.0, 0.0, 0.0
+    if len(a) == len(b) == 1:
+        delta = float(a[0]) - float(b[0])
+        return delta, delta, delta
 
     def mean_difference(x, y, axis=0):
         return np.mean(x, axis=axis) - np.mean(y, axis=axis)
@@ -77,16 +82,24 @@ def paired_bootstrap(a: Sequence[float], b: Sequence[float], *, n_resamples: int
     return float(mean_difference(a, b)), float(interval.low), float(interval.high)
 
 
+def _total_draws(n: int, c: int, k: int) -> int:
+    if not all(isinstance(x, Integral) and not isinstance(x, bool) for x in (n, c, k)):
+        raise ValueError("n, c and k must be integer counts")
+    if not (0 <= c <= n and 1 <= k <= n):
+        raise ValueError("expected 0 <= c <= n and 1 <= k <= n")
+    return comb(n, k)
+
+
 def pass_at_k(n: int, c: int, k: int) -> float:
     """Probability that AT LEAST ONE of k trials drawn from n (c of them passing) passes.
     Unbiased estimator (Chen et al. 2021): 1 - C(n-c, k) / C(n, k). Raise ValueError if k > n."""
-    # TODO M6
-    raise NotImplementedError
+    total = _total_draws(n, c, k)
+    return (total - comb(n - c, k)) / total
 
 
 def pass_hat_k(n: int, c: int, k: int) -> float:
     """pass^k (tau-bench, Yao et al. 2024): probability that ALL k trials drawn from n pass.
     Unbiased estimator: C(c, k) / C(n, k). Raise ValueError if k > n.
     pass^k <= pass@1 <= pass@k; a reliable agent keeps pass^k close to pass@1."""
-    # TODO M6
-    raise NotImplementedError
+    total = _total_draws(n, c, k)
+    return comb(c, k) / total
