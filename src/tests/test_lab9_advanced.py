@@ -26,9 +26,11 @@ def test_pass_hat_k(stats, n, c, k, want):
 
 
 def test_pass_k_rejects_bad_args(stats):
-    for args in [(5, 6, 1), (5, 2, 0), (3, 1, 4)]:
+    for args in [(5, 6, 1), (5, -1, 1), (5, 2, 0), (3, 1, 4)]:
         with pytest.raises(ValueError):
             stats.pass_at_k(*args)
+        with pytest.raises(ValueError):
+            stats.pass_hat_k(*args)
 
 
 def _report(rows, metrics, items=4, seeds=(1, 2)):
@@ -63,6 +65,42 @@ def test_integrity_flags_loosened_spec():
     assert gate.integrity_check(base, base, SPEC, SPEC) == []
 
 
+def test_integrity_flags_duplicate_replacing_a_trial():
+    from lab9 import gate
+
+    base = _report(ROWS, {"pass_rate": 1.0})
+    duplicate = _report([*ROWS[:-1], ROWS[0]], base["metrics"])
+    assert gate.integrity_check(duplicate, base, SPEC)
+
+
+def test_integrity_flags_evaluator_failures_in_a_passing_run():
+    from lab9 import gate
+
+    base = _report(ROWS, {"pass_rate": 1.0})
+    broken = dict(base, evaluator_failures=["E-000@1:TrialPass:grader failed"])
+    assert gate.integrity_check(broken, base, SPEC)
+
+
+def test_integrity_flags_changed_slice_tags():
+    from lab9 import gate
+
+    base = _report(ROWS, {"pass_rate": 1.0})
+    relabelled = copy.deepcopy(base)
+    relabelled["rows"][0]["slices"] = []
+    assert gate.integrity_check(relabelled, base, SPEC)
+
+
+def test_integrity_ratchet_rejects_removing_slice_ci():
+    from lab9 import gate
+
+    base = _report(ROWS, {"pass_rate": 1.0})
+    rule = {"name": "denial", "metric": "pass_rate", "min": 0.9, "no_significant_drop": True, "blocking": True}
+    old = dict(SPEC, slices=[rule])
+    loose = dict(SPEC, slices=[{**rule, "no_significant_drop": False}])
+    assert gate.integrity_check(base, base, loose, old)
+    assert gate.integrity_check(base, base, dict(loose, eval_set_version="v3"), old) == []
+
+
 def test_slice_check_blocks_a_slice_below_floor():
     from lab9 import gate
 
@@ -73,4 +111,19 @@ def test_slice_check_blocks_a_slice_below_floor():
             r["pass_rate"] = False
     spec = dict(SPEC, slices=[{"name": "denial", "metric": "pass_rate", "min": 0.9, "blocking": True}])
     blocked, _ = gate.slice_check(_report(rows, {"pass_rate": 0.75}), base, spec)
+    assert blocked == ["slice:denial/pass_rate"]
+
+
+def test_slice_drop_pairs_items_when_rows_are_reordered():
+    from lab9 import gate
+
+    def report(cases):
+        return {"rows": [{"item_id": item, "seed": seed, "slices": ["denial"], "pass_rate": passed}
+                         for item, outcomes in cases.items() for seed, passed in enumerate(outcomes)]}
+
+    base = report({"A": [False, True], "B": [True, True]})
+    pr = report({"B": [True, False], "A": [False, False]})
+    # The slice meets its floor, but each item lost half a point.
+    rule = {"name": "denial", "metric": "pass_rate", "min": 0.25, "no_significant_drop": True, "blocking": True}
+    blocked, _ = gate.slice_check(pr, base, {"slices": [rule]})
     assert blocked == ["slice:denial/pass_rate"]
