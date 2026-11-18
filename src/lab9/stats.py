@@ -9,6 +9,9 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+import numpy as np
+from scipy.stats import bootstrap
+
 POS = "FAIL"   # the judge's job is to FIND failures, so FAIL is the positive class
 
 
@@ -61,8 +64,17 @@ def paired_bootstrap(a: Sequence[float], b: Sequence[float], *, n_resamples: int
     """a[i], b[i] = per-item mean over seeds, SAME items, SAME order.
     Return (mean(a)-mean(b), lo, hi) with scipy.stats.bootstrap(paired=True, method="percentile",
     rng=numpy.random.default_rng(rng)). If a == b everywhere return (0.0, 0.0, 0.0)."""
-    # TODO M4
-    raise NotImplementedError
+    if len(a) and np.array_equal(a, b):
+        return 0.0, 0.0, 0.0
+
+    def mean_difference(x, y, axis=0):
+        return np.mean(x, axis=axis) - np.mean(y, axis=axis)
+
+    interval = bootstrap(
+        (a, b), mean_difference, paired=True, method="percentile",
+        n_resamples=n_resamples, confidence_level=confidence, rng=np.random.default_rng(rng),
+    ).confidence_interval
+    return float(mean_difference(a, b)), float(interval.low), float(interval.high)
 
 
 def pass_at_k(n: int, c: int, k: int) -> float:
